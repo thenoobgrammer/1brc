@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -17,56 +17,62 @@ const (
 	COUNT_IDX = 3
 )
 
+var (
+	start        time.Time
+	output       = io.Writer(os.Stdout)
+	stationStats = make(map[string]*[4]float64)
+)
+
 func main() {
-	start := time.Now()
+	start = time.Now()
 
-	output := io.Writer(os.Stdout)
+	output = io.Writer(os.Stdout)
 
-	f, err := os.Open("../measurements.txt")
+	f, err := os.Open("../measurements_1k.txt")
 	if err != nil {
 		log.Fatalf("failed to open input file: %v", err)
 	}
 	defer f.Close()
 
-	stationStats := make(map[string]*[4]float64)
+	//p1
+	var reader io.Reader = os.Stdin
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		station, tempStr := cut(line, ';')
-		temp := parseTemp(tempStr)
+	buf := make([]byte, 4096)
 
-		s := stationStats[station]
-		if s == nil {
-			stationStats[station] = &[4]float64{temp, temp, temp, 1}
-		} else {
-			var smin, smax = &s[MIN_IDX], &s[MAX_IDX]
-			s[MIN_IDX] = min(*smin, temp)
-			s[MAX_IDX] = min(*smax, temp)
-			s[SUM_IDX] += temp
-			s[COUNT_IDX] += 1
-		}
+	for err == nil {
+		_, err = reader.Read(buf)
+
+		i := bytes.LastIndexByte(temp, '\n')
+
+		process(buf[:i])
+
+		buf = make(temp, 4096)
 	}
 
-	stations := make([]string, 0, len(stationStats))
-	for station := range stationStats {
-		stations = append(stations, station)
-	}
-	sort.Strings(stations)
+	if err != io.EOF {
 
-	fmt.Fprint(output, "{")
-	for i, station := range stations {
-		if i > 0 {
-			fmt.Fprint(output, ", ")
-		}
-		s := stationStats[station]
-		mean := s[SUM_IDX] / s[COUNT_IDX]
-		fmt.Fprintf(output, "%s=%.1f/%.1f/%.1f", station, s[MIN_IDX], mean, s[MAX_IDX])
 	}
-	fmt.Fprint(output, "}\n")
-	fmt.Fprintf(output, "Elapsed: %v ------------------\n", time.Since(start))
+	//for scanner.Scan() {
+	//	line := scanner.Text()
+	//	station, tempStr := cut(line, ';')
+	//	temp := parseTemp(tempStr)
+	//
+	//	s := stationStats[station]
+	//	if s == nil {
+	//		stationStats[station] = &[4]float64{temp, temp, temp, 1}
+	//	} else {
+	//		var smin, smax = &s[MIN_IDX], &s[MAX_IDX]
+	//		s[MIN_IDX] = min(*smin, temp)
+	//		s[MAX_IDX] = min(*smax, temp)
+	//		s[SUM_IDX] += temp
+	//		s[COUNT_IDX] += 1
+	//	}
+	//}
+	//
+	//print()
 }
 
+// String vers
 func parseTemp(value string) float64 {
 	index := 0
 	sign := 1.0
@@ -97,6 +103,24 @@ func cut(s string, sep rune) (string, string) {
 			break
 		}
 	}
-
 	return s[:sepIdx-1], s[sepIdx+1:]
+}
+
+func print() {
+	stations := make([]string, 0, len(stationStats))
+	for station := range stationStats {
+		stations = append(stations, station)
+	}
+	sort.Strings(stations)
+	fmt.Fprint(output, "{")
+	for i, station := range stations {
+		if i > 0 {
+			fmt.Fprint(output, ", ")
+		}
+		s := stationStats[station]
+		mean := s[SUM_IDX] / s[COUNT_IDX]
+		fmt.Fprintf(output, "%s=%.1f/%.1f/%.1f", station, s[MIN_IDX], mean, s[MAX_IDX])
+	}
+	fmt.Fprint(output, "}\n")
+	fmt.Fprintf(output, "Elapsed: %v ------------------\n", time.Since(start))
 }
