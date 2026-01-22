@@ -1,0 +1,10 @@
+Minsk;0.4
+Palermo;8.0
+Fresno;32.5
+Bissau;20.5
+Naha;21.5
+Hobart;10.4
+Arkhangelsk;-1.8
+Beirut;35.1
+Makurdi;31.3
+Helsinki;11.3
