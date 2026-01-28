@@ -28,52 +28,67 @@ func main() {
 
 	output = io.Writer(os.Stdout)
 
-	f, err := os.Open("../measurements_1k.txt")
+	f, err := os.Open("./utils/measurements_10.txt")
 	if err != nil {
 		log.Fatalf("failed to open input file: %v", err)
 	}
 	defer f.Close()
 
-	//p1
 	var reader io.Reader = os.Stdin
 
 	buf := make([]byte, 4096)
 
-	for err == nil {
-		_, err = reader.Read(buf)
+	left_over := 0
 
-		i := bytes.LastIndexByte(temp, '\n')
+	for {
+		n, readErr := reader.Read(buf[:left_over])
+		if n == 0 && readErr != nil {
+			break
+		}
 
+		i := bytes.LastIndexByte(buf, '\n')
+
+		// find the carry-over start index
+		carry_over_len := len(buf) - (i + 1)
+
+		// process that array to the cut()
 		process(buf[:i])
 
-		buf = make(temp, 4096)
+		// put carry-over in the begining
+		copy(buf, buf[i+1:])
+
+		left_over = carry_over_len
 	}
 
-	if err != io.EOF {
+	print()
+}
 
+func process(buf []byte) {
+	for _, b := range buf {
+		if b == '\n' {
+			station, temp := cut(buf)
+			temp64 := toFloat64(temp)
+			s := stationStats[station]
+			if s == nil {
+				stationStats[station] = &[4]float64{temp64, temp64, temp64, 1}
+			} else {
+				var smin, smax = &s[MIN_IDX], &s[MAX_IDX]
+				s[MIN_IDX] = min(*smin, temp64)
+				s[MAX_IDX] = min(*smax, temp64)
+				s[SUM_IDX] += temp64
+				s[COUNT_IDX] += 1
+			}
+		}
 	}
-	//for scanner.Scan() {
-	//	line := scanner.Text()
-	//	station, tempStr := cut(line, ';')
-	//	temp := parseTemp(tempStr)
-	//
-	//	s := stationStats[station]
-	//	if s == nil {
-	//		stationStats[station] = &[4]float64{temp, temp, temp, 1}
-	//	} else {
-	//		var smin, smax = &s[MIN_IDX], &s[MAX_IDX]
-	//		s[MIN_IDX] = min(*smin, temp)
-	//		s[MAX_IDX] = min(*smax, temp)
-	//		s[SUM_IDX] += temp
-	//		s[COUNT_IDX] += 1
-	//	}
-	//}
-	//
-	//print()
+}
+
+func cut(buf []byte) (string, string) {
+	i := bytes.LastIndexByte(buf, ';')
+	return string(buf[:i-1]), string(buf[i+1:])
 }
 
 // String vers
-func parseTemp(value string) float64 {
+func toFloat64(value string) float64 {
 	index := 0
 	sign := 1.0
 
@@ -93,17 +108,6 @@ func parseTemp(value string) float64 {
 	res = res + ((float64(value[index]) - '0') / 10.0)
 
 	return sign * res
-}
-
-func cut(s string, sep rune) (string, string) {
-	var sepIdx int
-	for i, v := range s {
-		if v == sep {
-			sepIdx = i
-			break
-		}
-	}
-	return s[:sepIdx-1], s[sepIdx+1:]
 }
 
 func print() {
