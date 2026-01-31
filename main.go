@@ -34,52 +34,70 @@ func main() {
 	}
 	defer f.Close()
 
-	var reader io.Reader = os.Stdin
+	var reader io.Reader = f
 
 	buf := make([]byte, 4096)
 
 	left_over := 0
-
+	// [a b c d e \n  f   g]
+	// 		       i i+1
+	// [f g h i j k l \n m n]
 	for {
 		n, readErr := reader.Read(buf[:left_over])
 		if n == 0 && readErr != nil {
 			break
 		}
-
 		i := bytes.LastIndexByte(buf, '\n')
+		fmt.Println(n, left_over, i)
+		if i != -1 {
+			// carry_over_len := len(buf) - (i + 1)
 
-		// find the carry-over start index
-		carry_over_len := len(buf) - (i + 1)
+			// process that array to the cut()
+			process(buf[:i])
 
-		// process that array to the cut()
-		process(buf[:i])
+			// put carry-over in the begining
+			copy(buf, buf[i+1:])
 
-		// put carry-over in the begining
-		copy(buf, buf[i+1:])
-
-		left_over = carry_over_len
+			// find the carry-over start index
+			left_over = len(buf) - i - 1
+		} else {
+			left_over = len(buf)
+		}
 	}
 
-	print()
+	// print()
 }
 
 func process(buf []byte) {
-	for _, b := range buf {
-		if b == '\n' {
-			station, temp := cut(buf)
-			temp64 := toFloat64(temp)
-			s := stationStats[station]
-			if s == nil {
-				stationStats[station] = &[4]float64{temp64, temp64, temp64, 1}
-			} else {
-				var smin, smax = &s[MIN_IDX], &s[MAX_IDX]
-				s[MIN_IDX] = min(*smin, temp64)
-				s[MAX_IDX] = min(*smax, temp64)
-				s[SUM_IDX] += temp64
-				s[COUNT_IDX] += 1
-			}
+	_processStation := func(station string, temp string) {
+		temp64 := toFloat64(temp)
+		s := stationStats[station]
+		if s == nil {
+			stationStats[station] = &[4]float64{temp64, temp64, temp64, 1}
+		} else {
+			var smin, smax = &s[MIN_IDX], &s[MAX_IDX]
+			s[MIN_IDX] = min(*smin, temp64)
+			s[MAX_IDX] = min(*smax, temp64)
+			s[SUM_IDX] += temp64
+			s[COUNT_IDX] += 1
 		}
 	}
+
+	last_newline := 0
+
+	for i, b := range buf {
+		var station string
+		var temp string
+		if b == '\n' {
+			station, temp = cut(buf[last_newline:i])
+			last_newline = i
+		}
+		// else if i == len(buf)-1 {
+		// 	station, temp = cut(buf[last_newline+1 : i])
+		// }
+		_processStation(station, temp)
+	}
+
 }
 
 func cut(buf []byte) (string, string) {
@@ -89,6 +107,10 @@ func cut(buf []byte) (string, string) {
 
 // String vers
 func toFloat64(value string) float64 {
+	if value == "" {
+		return 0.0
+	}
+
 	index := 0
 	sign := 1.0
 
