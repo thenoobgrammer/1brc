@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"sort"
 	"time"
 )
@@ -23,86 +24,118 @@ var (
 	stationStats = make(map[string]*[4]float64)
 )
 
+type Worker struct {
+	PartitionSize int64
+	StartByte     int64
+}
+
 func main() {
 	start = time.Now()
 
 	output = io.Writer(os.Stdout)
 
-	f, err := os.Open("./utils/measurements_10.txt")
+	f, err := os.Open("../measurements.txt")
 	if err != nil {
 		log.Fatalf("failed to open input file: %v", err)
 	}
 	defer f.Close()
 
-	var reader io.Reader = f
+	var numWorkers = runtime.NumCPU() - 8 // 24
+	info, _ := f.Stat()
+	partitionSize := info.Size() / int64(numWorkers)
 
-	buf := make([]byte, 4096)
-
-	left_over := 0
-	// [a b c d e \n  f   g]
-	// 		       i i+1
-	// [f g h i j k l \n m n]
-	for {
-		n, readErr := reader.Read(buf[:left_over])
-		if n == 0 && readErr != nil {
-			break
-		}
-		i := bytes.LastIndexByte(buf, '\n')
-		fmt.Println(n, left_over, i)
-		if i != -1 {
-			// carry_over_len := len(buf) - (i + 1)
-
-			// process that array to the cut()
-			process(buf[:i])
-
-			// put carry-over in the begining
-			copy(buf, buf[i+1:])
-
-			// find the carry-over start index
-			left_over = len(buf) - i - 1
-		} else {
-			left_over = len(buf)
-		}
+	var workers []Worker
+	for i := 0; i < numWorkers; i++ {
+		workers = append(workers, Worker{
+			StartByte: partitionSize * int64(i),
+		})
 	}
 
-	// print()
+	done := make(chan struct{})
+
+	for i, worker := range workers {
+		go func(i int) {
+			var tempBuff []byte
+			var buff []byte
+
+			if worker.StartByte == 0 {
+				tempBuff = make([]byte, 40)
+				f.ReadAt(tempBuff, partitionSize-1)
+				idx := int64(bytes.IndexByte(tempBuff, '\n')) + 1
+
+				buff = make([]byte, partitionSize+idx)
+				f.ReadAt(buff, 0)
+			} else {
+				tempBuff = make([]byte, 40)
+				f.ReadAt(tempBuff, worker.StartByte)
+				startIdx := int64(bytes.IndexByte(tempBuff, '\n')) + 1
+
+				tempBuff = make([]byte, 40)
+				f.ReadAt(tempBuff, worker.StartByte+partitionSize)
+				lastIdx := int64(bytes.IndexByte(tempBuff, '\n')) + 1
+
+				buff = make([]byte, -startIdx+partitionSize+lastIdx)
+				f.ReadAt(buff, worker.StartByte+startIdx)
+			}
+
+			processRecords(buff)
+
+			done <- struct{}{}
+		}(i)
+	}
+
+	for range workers {
+		<-done
+	}
+
+	print()
 }
 
-func process(buf []byte) {
+func processRecords(buf []byte) {
 	_processStation := func(station string, temp string) {
+		if station == "" || temp == "" {
+			return
+		}
 		temp64 := toFloat64(temp)
 		s := stationStats[station]
 		if s == nil {
 			stationStats[station] = &[4]float64{temp64, temp64, temp64, 1}
 		} else {
-			var smin, smax = &s[MIN_IDX], &s[MAX_IDX]
+			smin, smax := &s[MIN_IDX], &s[MAX_IDX]
 			s[MIN_IDX] = min(*smin, temp64)
-			s[MAX_IDX] = min(*smax, temp64)
+			s[MAX_IDX] = max(*smax, temp64)
 			s[SUM_IDX] += temp64
 			s[COUNT_IDX] += 1
 		}
 	}
 
-	last_newline := 0
+	lastNewline := 0
 
 	for i, b := range buf {
 		var station string
 		var temp string
 		if b == '\n' {
-			station, temp = cut(buf[last_newline:i])
-			last_newline = i
+			station, temp = cut(buf[lastNewline:i])
+			lastNewline = i + 1
 		}
-		// else if i == len(buf)-1 {
-		// 	station, temp = cut(buf[last_newline+1 : i])
-		// }
 		_processStation(station, temp)
 	}
 
+	if lastNewline < len(buf) {
+		station, temp := cut(buf[lastNewline:])
+		_processStation(station, temp)
+	}
 }
 
 func cut(buf []byte) (string, string) {
+	if len(buf) < 0 {
+		return "", ""
+	}
 	i := bytes.LastIndexByte(buf, ';')
-	return string(buf[:i-1]), string(buf[i+1:])
+	if i == -1 {
+		return "", ""
+	}
+	return string(buf[:i]), string(buf[i+1:])
 }
 
 // String vers
